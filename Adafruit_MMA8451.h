@@ -39,7 +39,9 @@
     #define MMA8451_DEFAULT_ADDRESS                 (0x1D)    // if A is GND, its 0x1C
 /*=========================================================================*/
 
+#define MMA8451_REG_F_STATUS      0x00
 #define MMA8451_REG_OUT_X_MSB     0x01
+#define MMA8451_REG_F_SETUP       0x09
 #define MMA8451_REG_SYSMOD        0x0B
 #define MMA8451_REG_WHOAMI        0x0D
 #define MMA8451_REG_XYZ_DATA_CFG  0x0E
@@ -85,6 +87,13 @@ typedef enum
 } mma8451_dataRate_t;
 
 
+typedef enum
+{
+  MMA8451_FIFO_NONE           = 0b00,
+  MMA8451_FIFO_CIRCULAR       = 0b01,
+  MMA8451_FIFO_FILL           = 0b10,
+  MMA8451_FIFO_TRIGGER        = 0b11 
+} mma8451_fifo_t;
 
 class Adafruit_MMA8451
 #ifdef USE_SENSOR
@@ -104,9 +113,12 @@ class Adafruit_MMA8451
 
   void setDataRate(mma8451_dataRate_t dataRate);
   mma8451_dataRate_t getDataRate(void);
+  
+  void setFifoSettings(mma8451_fifo_t mode, uint8_t watermark = 0);
 
 #ifdef USE_SENSOR
   bool getEvent(sensors_event_t *event);
+  uint8_t getEventsFromFifo(sensors_event_t event[], uint8_t n = 32, uint8_t recursionCounter = 0 );
   void getSensor(sensor_t *sensor);
 #endif
 

@@ -223,6 +223,19 @@ mma8451_dataRate_t Adafruit_MMA8451::getDataRate(void)
   return (mma8451_dataRate_t)((readRegister8(MMA8451_REG_CTRL_REG1) >> 3) & MMA8451_DATARATE_MASK);
 }
 
+/**************************************************************************/
+/*!
+    @brief  Sets the mode and watermark for the FIFO
+*/
+/**************************************************************************/
+void Adafruit_MMA8451::setFifoSettings( mma8451_fifo_t mode, uint8_t watermark ) {
+  uint8_t ctl1 = readRegister8( MMA8451_REG_CTRL_REG1 );
+  writeRegister8( MMA8451_REG_CTRL_REG1, 0x00 );          // deactivate
+  writeRegister8( MMA8451_REG_F_SETUP, 0 );
+  writeRegister8( MMA8451_REG_F_SETUP, ( mode << 6 ) | ( watermark & 0b00111111 ) );
+  writeRegister8( MMA8451_REG_CTRL_REG1, ctl1 | 0x01 );   // activate
+}
+
 #ifdef USE_SENSOR
 /**************************************************************************/
 /*!
@@ -246,6 +259,86 @@ bool Adafruit_MMA8451::getEvent(sensors_event_t *event) {
   event->acceleration.z = z_g * SENSORS_GRAVITY_STANDARD;
 
   return true;
+}
+
+/**************************************************************************/
+/*!
+    @brief  Gets the content of the fifo, stores them in the given array and returns the number of samples
+*/
+/**************************************************************************/
+uint8_t Adafruit_MMA8451::getEventsFromFifo( sensors_event_t events[], uint8_t n, uint8_t recursionCounter ) {
+  /* Clear the events */
+  memset( events, 0, n * sizeof( sensors_event_t ) );
+
+  uint8_t numSamples = ( readRegister8( MMA8451_REG_F_STATUS ) & 0b00111111 );
+
+  if ( numSamples < n ) {
+    n = numSamples;
+  }
+
+  if ( numSamples > 32 ) {
+    return 0;
+  }
+
+  uint8_t range = getRange();
+  uint16_t divider = 1;
+
+  switch ( range ) {
+    case MMA8451_RANGE_8_G:
+      divider = 1024;
+      break;
+
+    case MMA8451_RANGE_4_G:
+      divider = 2048;
+      break;
+
+    case MMA8451_RANGE_2_G:
+    default:
+      divider = 4096;
+      break;
+  }
+
+  uint16_t timeoutBuf = Wire.getTimeOut();
+  Wire.setTimeout( 64000 );
+  Wire.beginTransmission( _i2caddr );
+  i2cwrite( MMA8451_REG_OUT_X_MSB );
+  Wire.endTransmission( false ); // MMA8451 + friends uses repeated start!!
+
+  uint8_t cnt = Wire.requestFrom( _i2caddr, n * 6 );
+
+//   Serial.print( " Wire.requestFrom( " );
+//   Serial.print( n * 6 );
+//   Serial.print( " ): " );
+//   Serial.println( cnt );
+  
+  Wire.setTimeout( timeoutBuf );
+
+  // recurse/try again
+  if ( ! Wire.available() ) {
+    return 0;
+  }
+
+  for ( uint8_t i = 0; i < n; i++ ) {
+    int16_t x = Wire.read() << 8 | Wire.read();
+    int16_t y = Wire.read() << 8 | Wire.read();
+    int16_t z = Wire.read() << 8 | Wire.read();
+
+    x /= 4;
+    y /= 4;
+    z /= 4;
+
+    events[i].version   = sizeof( sensors_event_t );
+    events[i].sensor_id = _sensorID;
+    events[i].type      = SENSOR_TYPE_ACCELEROMETER;
+    events[i].timestamp = 0;
+
+    // Convert Acceleration Data to m/s^2
+    events[i].acceleration.x = ( ( float )x / divider ) * SENSORS_GRAVITY_STANDARD;
+    events[i].acceleration.y = ( ( float )y / divider ) * SENSORS_GRAVITY_STANDARD;
+    events[i].acceleration.z = ( ( float )z / divider ) * SENSORS_GRAVITY_STANDARD;
+  }
+
+  return n;
 }
 
 /**************************************************************************/
